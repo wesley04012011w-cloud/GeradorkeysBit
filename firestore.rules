@@ -1,0 +1,74 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: keys
+// Document ID: auto-generated
+// Fields:
+//   - key: string (required) - The actual key string
+//   - lastUsedAt: timestamp (optional) - The last time this key was generated
+//
+// Collection: users
+// Document ID: userId (uid)
+// Fields:
+//   - lastGeneratedAt: timestamp (optional) - The last time this user generated a key
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "lucasantonio20259@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // Keys Collection
+    match /keys/{keyId} {
+      // Anyone authenticated can read keys to find an available one
+      allow read: if isAuthenticated();
+      
+      // Anyone authenticated can update a key to mark it as used (with validation)
+      allow update: if isAuthenticated() && 
+        isValidKeyUpdate(request.resource.data) &&
+        (resource.data.lastUsedAt == null || request.time > resource.data.lastUsedAt + duration.value(24, 'h'));
+      
+      // Permitir que usuários autenticados (incluindo anônimos) gerenciem chaves
+      // A segurança real aqui é o painel invisível + senha no lado do cliente
+      allow create, delete: if isAuthenticated() && (isAdmin() || request.auth.token.firebase.sign_in_provider == 'anonymous');
+    }
+
+    // Users Collection
+    match /users/{userId} {
+      // Users can read and update their own cooldown data
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidUserUpdate(request.resource.data);
+      
+      // Admins can manage all user data
+      allow delete: if isAdmin();
+    }
+
+    // Validation Functions
+    function isValidKeyUpdate(data) {
+      return data.keys().hasAll(['key', 'lastUsedAt']) &&
+             data.key is string &&
+             data.lastUsedAt is timestamp;
+    }
+
+    function isValidUserUpdate(data) {
+      // Allow users to update their cooldown, but not their role (unless admin)
+      return data.keys().hasAny(['lastGeneratedAt']) &&
+             (!('role' in data) || (resource.data.role == data.role) || isAdmin());
+    }
+  }
+}

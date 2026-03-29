@@ -1,0 +1,5 @@
+{
+  "name": "Gerador de Keys",
+  "description": "Um sistema simples para sorteio de chaves exclusivas com cooldown de 24 horas.",
+  "requestFramePermissions": []
+}
